@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-label="SuperMD demo card">
+  <defs>
+    <linearGradient id="paper" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#fffdf7"/>
+      <stop offset="1" stop-color="#f1eadb"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="22" stdDeviation="20" flood-color="#2a251d" flood-opacity=".20"/>
+    </filter>
+  </defs>
+  <rect width="960" height="540" fill="#f7f6f1"/>
+  <path d="M0 0h960v540H0z" fill="none"/>
+  <g opacity=".22" stroke="#1b6b64" stroke-width="1">
+    <path d="M0 60h960M0 120h960M0 180h960M0 240h960M0 300h960M0 360h960M0 420h960M0 480h960"/>
+    <path d="M80 0v540M160 0v540M240 0v540M320 0v540M400 0v540M480 0v540M560 0v540M640 0v540M720 0v540M800 0v540M880 0v540"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="110" y="72" width="740" height="396" rx="18" fill="url(#paper)" stroke="#d7cfbd" stroke-width="2"/>
+    <rect x="110" y="72" width="740" height="62" rx="18" fill="#1b6b64"/>
+    <path d="M110 116h740v20H110z" fill="#1b6b64"/>
+    <circle cx="148" cy="103" r="9" fill="#dd5b37"/>
+    <circle cx="180" cy="103" r="9" fill="#e5bd54"/>
+    <circle cx="212" cy="103" r="9" fill="#8bbf8a"/>
+    <text x="258" y="111" fill="#fffdf7" font-family="Avenir Next, Segoe UI, sans-serif" font-size="24" font-weight="700">SuperMD</text>
+  </g>
+  <g font-family="Avenir Next, Segoe UI, sans-serif">
+    <text x="158" y="198" fill="#20231f" font-size="42" font-weight="700">Markdown, rendered fast.</text>
+    <text x="158" y="242" fill="#5d665f" font-size="20">GFM tables · math · diagrams · local images · source sync</text>
+  </g>
+  <g transform="translate(158 286)" font-family="SF Mono, Menlo, monospace" font-size="17">
+    <rect width="310" height="122" rx="12" fill="#101817"/>
+    <text x="22" y="36" fill="#e5bd54"># Live document</text>
+    <text x="22" y="66" fill="#ecf0e8">- [x] Preview</text>
+    <text x="22" y="96" fill="#ecf0e8">- [x] Edit source</text>
+  </g>
+  <g transform="translate(525 278)">
+    <rect width="250" height="132" rx="12" fill="#fffef9" stroke="#d7cfbd"/>
+    <path d="M44 92h162" stroke="#1b6b64" stroke-width="4" stroke-linecap="round"/>
+    <path d="M44 44h74" stroke="#dd5b37" stroke-width="4" stroke-linecap="round"/>
+    <path d="M44 68h142" stroke="#6f8f88" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="202" cy="44" r="18" fill="#f4e5dc" stroke="#b4532f" stroke-width="3"/>
+    <path d="m197 44 6 6 12-16" fill="none" stroke="#b4532f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

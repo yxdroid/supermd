@@ -2,7 +2,7 @@ import { FileText, FolderOpen, Image, PanelRightClose, PanelRightOpen, Save, Squ
 import mermaid from "mermaid";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent, PointerEvent, WheelEvent } from "react";
-import { indexFlowcharts, renderReadableFallback } from "./lib/markdown";
+import { indexFlowcharts, indexImages, renderMarkdown, renderReadableFallback } from "./lib/markdown";
 import { renderMermaidPreviewElements } from "./lib/diagramRender";
 import { DEFAULT_IMAGE_VIEW, panImageView, resetImageView, zoomImageView } from "./lib/imageViewer";
 import type { ImageView } from "./lib/imageViewer";
@@ -22,6 +22,7 @@ import {
 import type { SourceEditorHandle } from "./components/SourceEditor";
 import type { DocumentPayload, FlowchartIndexItem, ImageIndexItem, RecentFile, RenderState } from "./lib/types";
 import type { MarkdownWorkerResponse } from "./workers/markdown.worker";
+import MarkdownWorker from "./workers/markdown.worker?worker&inline";
 
 const SourceEditor = lazy(() => import("./components/SourceEditor").then((module) => ({ default: module.SourceEditor })));
 
@@ -65,7 +66,10 @@ function App() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const browserAssetUrlsRef = useRef(browserAssetUrls);
   const workerRef = useRef<Worker | null>(null);
+  const workerFailedRef = useRef(false);
   const renderVersionRef = useRef(0);
+  const contentRef = useRef(content);
+  const documentPathRef = useRef(documentPayload.path || "/supermd/untitled.md");
   const scrollOriginRef = useRef<"preview" | "editor" | null>(null);
   const scrollResetTimerRef = useRef<number | null>(null);
   const previewSyncFrameRef = useRef<number | null>(null);
@@ -104,6 +108,14 @@ function App() {
   useEffect(() => {
     browserAssetUrlsRef.current = browserAssetUrls;
   }, [browserAssetUrls]);
+
+  useEffect(() => {
+    contentRef.current = content;
+  }, [content]);
+
+  useEffect(() => {
+    documentPathRef.current = documentPayload.path || "/supermd/untitled.md";
+  }, [documentPayload.path]);
 
   useEffect(() => {
     const input = folderInputRef.current;
@@ -173,7 +185,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    workerRef.current = new Worker(new URL("./workers/markdown.worker.ts", import.meta.url), { type: "module" });
+    workerRef.current = new MarkdownWorker();
     workerRef.current.onmessage = (event: MessageEvent<MarkdownWorkerResponse>) => {
       if (event.data.version !== renderVersionRef.current) {
         return;
@@ -191,8 +203,13 @@ function App() {
     };
     workerRef.current.onerror = (event) => {
       console.error("Markdown worker failed", event);
-      setRenderState("error");
-      setStatus("已使用基础预览");
+      workerFailedRef.current = true;
+      setStatus("已切换主线程渲染");
+      renderEnhancedInMainThread(renderVersionRef.current, contentRef.current, documentPathRef.current).catch((error) => {
+        console.error("Main-thread Markdown render failed", error);
+        setRenderState("error");
+        setStatus("已使用基础预览");
+      });
     };
 
     return () => workerRef.current?.terminate();
@@ -227,7 +244,11 @@ function App() {
     if (shouldPreservePreview) {
       previewRenderTimerRef.current = window.setTimeout(() => {
         previewRenderTimerRef.current = null;
-        workerRef.current?.postMessage(renderRequest);
+        if (workerFailedRef.current) {
+          renderEnhancedInMainThread(version, content, documentPath).catch(() => undefined);
+        } else {
+          workerRef.current?.postMessage(renderRequest);
+        }
         previewFallbackTimerRef.current = window.setTimeout(() => {
           if (version !== renderVersionRef.current) {
             return;
@@ -245,6 +266,11 @@ function App() {
     setRenderState("readable");
     const fallbackHtml = rewriteImageSources(renderReadableFallback(content), quickImages);
     setHtml((current) => (current === fallbackHtml ? current : fallbackHtml));
+    if (workerFailedRef.current) {
+      renderEnhancedInMainThread(version, content, documentPath).catch(() => undefined);
+      return;
+    }
+
     workerRef.current?.postMessage(renderRequest);
   }, [content, documentPayload.path]);
 
@@ -297,6 +323,28 @@ function App() {
     setImagePanelOpen(false);
     setStatus("已打开");
     getRecentFiles().then(setRecentFiles).catch(() => undefined);
+  }
+
+  async function renderEnhancedInMainThread(version: number, rawContent: string, documentPath: string) {
+    const started = performance.now();
+    const [nextHtml, nextImages] = await Promise.all([
+      renderMarkdown(rawContent),
+      Promise.resolve(indexImages(rawContent, documentPath)),
+    ]);
+
+    if (version !== renderVersionRef.current) {
+      return;
+    }
+
+    if (previewFallbackTimerRef.current !== null) {
+      window.clearTimeout(previewFallbackTimerRef.current);
+      previewFallbackTimerRef.current = null;
+    }
+    setImages(nextImages);
+    const displayHtml = rewriteImageSources(nextHtml, nextImages);
+    setHtml((current) => (current === displayHtml ? current : displayHtml));
+    setRenderMs(Math.round(performance.now() - started));
+    setRenderState("enhanced");
   }
 
   async function handleBrowserFile(file: File | null) {
