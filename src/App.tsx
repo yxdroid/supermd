@@ -9,6 +9,7 @@ import type { ImageView } from "./lib/imageViewer";
 import { basename, isRemoteOrDataUrl, resolveAssetPath } from "./lib/paths";
 import { sanitizePreviewHtml } from "./lib/sanitize";
 import { scrollRatio, scrollTopForRatio } from "./lib/scrollSync";
+import { forgetLastDocumentPath, readLastDocumentPath, rememberLastDocumentPath } from "./lib/session";
 import {
   getRecentFiles,
   listenForOpenedMarkdownFiles,
@@ -144,17 +145,33 @@ function App() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
 
-    async function openSystemRequestedFile(paths: string[]) {
+    async function openSystemRequestedFile(paths: string[]): Promise<boolean> {
       const uniquePaths = Array.from(new Set(paths)).filter(isMarkdownPath);
       const path = uniquePaths[0];
       if (!path) {
-        return;
+        return false;
       }
 
       try {
         await loadFromPath(path);
       } catch (error) {
         setStatus(error instanceof Error ? `打开失败：${error.message}` : "打开失败");
+      }
+
+      return true;
+    }
+
+    async function restoreLastOpenedFile() {
+      const path = readLastDocumentPath();
+      if (!path || !isMarkdownPath(path)) {
+        return;
+      }
+
+      try {
+        await loadFromPath(path);
+      } catch (error) {
+        forgetLastDocumentPath();
+        setStatus(error instanceof Error ? `恢复上次文件失败：${error.message}` : "恢复上次文件失败");
       }
     }
 
@@ -168,7 +185,10 @@ function App() {
 
       const pending = await takePendingOpenFiles().catch(() => []);
       if (!cancelled) {
-        await openSystemRequestedFile(pending);
+        const openedSystemFile = await openSystemRequestedFile(pending);
+        if (!cancelled && !openedSystemFile) {
+          await restoreLastOpenedFile();
+        }
       }
     }
 
@@ -316,6 +336,7 @@ function App() {
     setStatus("读取中");
     const opened = await openMarkdownFile(path);
     preservePreviewOnNextRenderRef.current = false;
+    rememberLastDocumentPath(opened.path || path);
     setDocumentPayload(opened);
     setContent(opened.content);
     setDirty(false);
@@ -356,6 +377,7 @@ function App() {
     const path = readWebkitRelativePath(file) || file.name;
     replaceBrowserAssetUrls(new Map([[normalizeBrowserPath(path), URL.createObjectURL(file)]]));
     preservePreviewOnNextRenderRef.current = false;
+    forgetLastDocumentPath();
     setDocumentPayload({
       path,
       content: text,
@@ -389,6 +411,7 @@ function App() {
 
     const text = await markdownFile.text();
     preservePreviewOnNextRenderRef.current = false;
+    forgetLastDocumentPath();
     setDocumentPayload({
       path: readWebkitRelativePath(markdownFile) || markdownFile.name,
       content: text,

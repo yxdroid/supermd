@@ -336,7 +336,7 @@ button {
 
 .editor-pane {
   overflow: hidden;
-  background: #101817;
+  background: #ffffff;
 }
 
 .source-editor {
@@ -347,32 +347,54 @@ button {
   display: grid;
   height: 100%;
   place-items: center;
-  color: #aab6af;
-  background: #101817;
+  color: #6f776f;
+  background: #ffffff;
   font-size: 13px;
 }
 
 .source-editor .cm-editor {
   height: 100%;
-  color: #ecf0e8;
-  background: #101817;
+  color: #20231f;
+  background: #ffffff;
   font-size: 13px;
 }
 
 .source-editor .cm-scroller {
   font-family: "SF Mono", "Cascadia Code", Menlo, monospace;
+  line-height: 1.62;
+}
+
+.source-editor .cm-content {
+  padding: 16px 0 80px;
+}
+
+.source-editor .cm-line {
+  padding: 0 18px;
 }
 
 .source-editor .cm-gutters {
-  color: #81908a;
-  background: #0c1312;
-  border-right: 1px solid #263633;
+  color: #8d948b;
+  background: #fbfbf8;
+  border-right: 1px solid #e4e6df;
+}
+
+.source-editor .cm-lineNumbers .cm-gutterElement {
+  padding: 0 10px 0 14px;
 }
 
 .source-editor .cm-activeLine,
 .source-editor .cm-activeLineGutter,
 .source-editor .cm-focused-source-line {
-  background: rgba(221, 91, 55, 0.16);
+  background: #fff4d8;
+}
+
+.source-editor .cm-focused .cm-cursor {
+  border-left-color: #1b6b64;
+}
+
+.source-editor .cm-selectionBackground,
+.source-editor .cm-focused .cm-selectionBackground {
+  background: #cfe9df;
 }
 
 .image-panel {
