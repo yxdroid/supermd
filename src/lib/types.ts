@@ -31,6 +31,14 @@ export interface FlowchartIndexItem {
   previewSrc: string | null;
 }
 
+export interface HeadingIndexItem {
+  id: string;
+  level: number;
+  text: string;
+  line: number;
+  column: number;
+}
+
 export interface RecentFile {
   path: string;
   name: string;

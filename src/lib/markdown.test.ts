@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { indexFlowcharts, indexImages, renderMarkdown, renderReadableFallback } from "./markdown";
+import { indexFlowcharts, indexHeadings, indexImages, renderMarkdown, renderReadableFallback } from "./markdown";
 import { resolveAssetPath } from "./paths";
 
 describe("indexImages", () => {
@@ -86,6 +86,48 @@ describe("indexFlowcharts", () => {
         line: 8,
         column: 1,
         previewSrc: null,
+      },
+    ]);
+  });
+});
+
+describe("indexHeadings", () => {
+  it("indexes markdown headings with level, text, and source position", () => {
+    const content = [
+      "# Guide",
+      "",
+      "Intro",
+      "",
+      "## Images",
+      "",
+      "```markdown",
+      "# Not a heading",
+      "```",
+      "",
+      "### Nested **Topic**",
+    ].join("\n");
+
+    expect(indexHeadings(content)).toEqual([
+      {
+        id: "heading-0",
+        level: 1,
+        text: "Guide",
+        line: 1,
+        column: 1,
+      },
+      {
+        id: "heading-1",
+        level: 2,
+        text: "Images",
+        line: 5,
+        column: 1,
+      },
+      {
+        id: "heading-2",
+        level: 3,
+        text: "Nested Topic",
+        line: 11,
+        column: 1,
       },
     ]);
   });

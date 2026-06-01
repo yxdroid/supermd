@@ -2,7 +2,7 @@
 
 > 中文 | [English](#english)
 
-SuperMD 是一个基于 Tauri 2 + React 19 的桌面 Markdown 阅读与编辑器。它面向本地文档阅读、快速校对和图文材料整理，把增强预览、源码编辑、图片导航、流程图预览和桌面文件集成放在同一个轻量窗口里。
+SuperMD 是一个基于 Tauri 2 + React 19 的桌面 Markdown 阅读与编辑器。它面向本地文档阅读、快速校对和图文材料整理，把增强预览、源码编辑、快速预览、流程图预览和桌面文件集成放在同一个轻量窗口里。
 
 ![SuperMD desktop screenshot](docs/readme-assets/supermd-main.png)
 
@@ -10,7 +10,7 @@ SuperMD 是一个基于 Tauri 2 + React 19 的桌面 Markdown 阅读与编辑器
 
 - 增强 Markdown 渲染：支持 GFM、front matter、任务列表、表格、代码高亮、数学公式、标题锚点和原始 HTML 清洗。
 - 图表预览：支持 Mermaid 与 flowchart.js 代码块，并提供“预览 / 源码”切换。
-- 图片导航：自动索引 Markdown 图片、HTML 图片和流程图，侧边栏可快速定位，也可打开灯箱查看。
+- 快速预览：侧边栏用 Tab 切换文档目录和图片列表，目录标题可快速跳转定位，图片、HTML 图片和流程图仍可定位并打开灯箱查看。
 - 源码编辑：内置 CodeMirror 6，支持行号、Markdown 语法高亮、自动换行、定位源行和保存。
 - 滚动同步：预览区与源码区按滚动比例互相同步，适合长文档校对。
 - 桌面集成：Tauri 文件对话框、最近文件、系统打开 Markdown 文件、本地资源安全访问和文件关联。
@@ -64,9 +64,9 @@ src-tauri/target/release/bundle/dmg/SuperMD_0.1.0_aarch64.dmg
 
 ```text
 src/
-  App.tsx                     # 主界面、文件操作、预览/编辑/图片面板协调
+  App.tsx                     # 主界面、文件操作、预览/编辑/快速预览面板协调
   components/SourceEditor.tsx # CodeMirror 源码编辑器
-  lib/markdown.ts             # Markdown 渲染、图片/图表索引、可读 fallback
+  lib/markdown.ts             # Markdown 渲染、目录/图片/图表索引、可读 fallback
   lib/diagramRender.ts        # Mermaid 渲染兼容层
   lib/tauriClient.ts          # Tauri 命令与事件封装
   workers/markdown.worker.ts  # Markdown worker 渲染入口
@@ -85,7 +85,7 @@ npm run build
 npm run tauri:build
 ```
 
-当前验证结果：41 个 Vitest 用例通过；前端构建通过；macOS DMG 构建通过；已用打包版 SuperMD 打开 `docs/readme-demo/supermd-demo.md` 并截取运行界面。
+当前验证结果：46 个 Vitest 用例通过；前端构建通过。桌面安装包可按需通过 `npm run tauri:build` 构建。
 
 Vite 构建会提示部分 chunk 超过 500 kB，主要来自 Mermaid、KaTeX、CodeMirror 和 Markdown 渲染链路，属于当前富功能桌面包的已知体积信号。
 
@@ -97,7 +97,7 @@ README 主图使用 `docs/readme-demo/supermd-demo.md` 作为演示输入，截�
 
 ## English
 
-SuperMD is a Tauri 2 + React 19 desktop Markdown reader and editor. It is built for local document reading, quick review, and media-heavy notes, keeping enhanced preview, source editing, image navigation, diagram preview, and desktop file integration in one lightweight window.
+SuperMD is a Tauri 2 + React 19 desktop Markdown reader and editor. It is built for local document reading, quick review, and media-heavy notes, keeping enhanced preview, source editing, quick preview, diagram preview, and desktop file integration in one lightweight window.
 
 ![SuperMD desktop screenshot](docs/readme-assets/supermd-main.png)
 
@@ -105,7 +105,7 @@ SuperMD is a Tauri 2 + React 19 desktop Markdown reader and editor. It is built 
 
 - Enhanced Markdown rendering: GFM, front matter, task lists, tables, syntax highlighting, math, heading anchors, and sanitized raw HTML.
 - Diagram preview: Mermaid and flowchart.js code blocks with preview/source tabs.
-- Image navigation: indexes Markdown images, HTML images, and rendered diagrams, with side-panel jump links and a lightbox viewer.
+- Quick preview: switches between document outline and image lists in side-panel tabs; headings jump to the matching preview position, while Markdown images, HTML images, and rendered diagrams can still be located and opened in the lightbox.
 - Source editing: CodeMirror 6 editor with line numbers, Markdown highlighting, wrapping, source-line focus, and save support.
 - Scroll sync: preview and source panes stay aligned by scroll ratio for long-document review.
 - Desktop integration: Tauri dialogs, recent files, system Markdown file-open events, safe local asset access, and file associations.
@@ -159,9 +159,9 @@ The `.app` is bundled inside the DMG and can be launched from `/Volumes/SuperMD/
 
 ```text
 src/
-  App.tsx                     # Main UI and preview/editor/media coordination
+  App.tsx                     # Main UI and preview/editor/quick-preview coordination
   components/SourceEditor.tsx # CodeMirror source editor
-  lib/markdown.ts             # Markdown rendering, image/diagram indexing, fallback preview
+  lib/markdown.ts             # Markdown rendering, outline/image/diagram indexing, fallback preview
   lib/diagramRender.ts        # Mermaid rendering compatibility layer
   lib/tauriClient.ts          # Tauri command and event wrappers
   workers/markdown.worker.ts  # Markdown worker entry
@@ -180,7 +180,7 @@ npm run build
 npm run tauri:build
 ```
 
-Current result: 41 Vitest tests passed; frontend build passed; macOS DMG build passed; the packaged SuperMD app was launched with `docs/readme-demo/supermd-demo.md` and captured for this README.
+Current result: 46 Vitest tests passed; frontend build passed. Desktop packages can be built with `npm run tauri:build` when needed.
 
 Vite reports several chunks over 500 kB, mainly from Mermaid, KaTeX, CodeMirror, and the Markdown rendering pipeline. This is a known size signal for the current rich desktop bundle.
 

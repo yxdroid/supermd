@@ -13,13 +13,16 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
 import { resolveAssetPath, isRemoteOrDataUrl } from "./paths";
-import type { FlowchartIndexItem, ImageIndexItem } from "./types";
+import type { FlowchartIndexItem, HeadingIndexItem, ImageIndexItem } from "./types";
 
 type MarkdownNode = {
   type: string;
   url?: string;
   alt?: string | null;
   title?: string | null;
+  depth?: number;
+  value?: string;
+  children?: MarkdownNode[];
   position?: {
     start: {
       line: number;
@@ -121,6 +124,27 @@ export function indexFlowcharts(content: string): FlowchartIndexItem[] {
       previewSrc: null,
     };
   });
+}
+
+export function indexHeadings(content: string): HeadingIndexItem[] {
+  const headings: HeadingIndexItem[] = [];
+  const tree = unified().use(remarkParse).use(remarkGfm).parse(content);
+
+  visit(tree, "heading", (node: MarkdownNode) => {
+    if (!node.position || !node.depth) {
+      return;
+    }
+
+    headings.push({
+      id: `heading-${headings.length}`,
+      level: node.depth,
+      text: extractMarkdownText(node).trim(),
+      line: node.position.start.line,
+      column: node.position.start.column,
+    });
+  });
+
+  return headings;
 }
 
 export async function renderMarkdown(content: string): Promise<string> {
@@ -471,6 +495,14 @@ function textContent(node: HastNode): string {
   }
 
   return node.children?.map((child) => textContent(child)).join("") ?? "";
+}
+
+function extractMarkdownText(node: MarkdownNode): string {
+  if (typeof node.value === "string") {
+    return node.value;
+  }
+
+  return node.children?.map((child) => extractMarkdownText(child)).join("") ?? "";
 }
 
 function normalizeMermaidSource(code: string): string {

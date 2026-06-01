@@ -2,7 +2,7 @@ import { FileText, FolderOpen, Image, PanelRightClose, PanelRightOpen, Save, Squ
 import mermaid from "mermaid";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent, PointerEvent, WheelEvent } from "react";
-import { indexFlowcharts, indexImages, renderMarkdown, renderReadableFallback } from "./lib/markdown";
+import { indexFlowcharts, indexHeadings, indexImages, renderMarkdown, renderReadableFallback } from "./lib/markdown";
 import { renderMermaidPreviewElements } from "./lib/diagramRender";
 import { DEFAULT_IMAGE_VIEW, panImageView, resetImageView, zoomImageView } from "./lib/imageViewer";
 import type { ImageView } from "./lib/imageViewer";
@@ -21,11 +21,13 @@ import {
   toDisplayableAsset,
 } from "./lib/tauriClient";
 import type { SourceEditorHandle } from "./components/SourceEditor";
-import type { DocumentPayload, FlowchartIndexItem, ImageIndexItem, RecentFile, RenderState } from "./lib/types";
+import type { DocumentPayload, FlowchartIndexItem, HeadingIndexItem, ImageIndexItem, RecentFile, RenderState } from "./lib/types";
 import type { MarkdownWorkerResponse } from "./workers/markdown.worker";
 import MarkdownWorker from "./workers/markdown.worker?worker&inline";
 
 const SourceEditor = lazy(() => import("./components/SourceEditor").then((module) => ({ default: module.SourceEditor })));
+
+type QuickPreviewTab = "outline" | "images";
 
 const EMPTY_DOC: DocumentPayload = {
   path: "",
@@ -35,7 +37,7 @@ const EMPTY_DOC: DocumentPayload = {
     "打开一个 Markdown 文档开始阅读。",
     "",
     "- 支持 GFM、数学公式、Mermaid 和本地图片",
-    "- 右下角图片按钮会在文档包含图片时亮起",
+    "- 右下角快速预览会在文档包含目录或图片时亮起",
   ].join("\n"),
   size: 0,
   mtime: Date.now(),
@@ -48,11 +50,13 @@ function App() {
   const [html, setHtml] = useState("");
   const [images, setImages] = useState<ImageIndexItem[]>([]);
   const [flowcharts, setFlowcharts] = useState<FlowchartIndexItem[]>([]);
+  const [headings, setHeadings] = useState<HeadingIndexItem[]>([]);
   const [renderState, setRenderState] = useState<RenderState>("loading");
   const [renderMs, setRenderMs] = useState(0);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorInitialScrollRatio, setEditorInitialScrollRatio] = useState(0);
   const [imagePanelOpen, setImagePanelOpen] = useState(false);
+  const [activeQuickPreviewTab, setActiveQuickPreviewTab] = useState<QuickPreviewTab>("outline");
   const [dirty, setDirty] = useState(false);
   const [focusTarget, setFocusTarget] = useState<{ line: number; column: number } | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
@@ -117,6 +121,29 @@ function App() {
   useEffect(() => {
     documentPathRef.current = documentPayload.path || "/supermd/untitled.md";
   }, [documentPayload.path]);
+
+  useEffect(() => {
+    if (!editorOpen) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.altKey || event.key.toLowerCase() !== "s" || (!event.metaKey && !event.ctrlKey)) {
+        return;
+      }
+
+      event.preventDefault();
+      if (!dirty) {
+        setStatus("已保存");
+        return;
+      }
+
+      void handleSave();
+    }
+
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [content, dirty, documentPayload.path, editorOpen]);
 
   useEffect(() => {
     const input = folderInputRef.current;
@@ -253,6 +280,7 @@ function App() {
     }
 
     setFlowcharts(indexFlowcharts(content));
+    setHeadings(indexHeadings(content));
     setImages(quickImages);
 
     const renderRequest = {
@@ -430,11 +458,15 @@ function App() {
       return;
     }
 
-    setStatus("保存中");
-    const result = await saveMarkdownFile(documentPayload.path, content);
-    setDocumentPayload((current) => ({ ...current, size: result.size, mtime: result.savedAt, content }));
-    setDirty(false);
-    setStatus("已保存");
+    try {
+      setStatus("保存中");
+      const result = await saveMarkdownFile(documentPayload.path, content);
+      setDocumentPayload((current) => ({ ...current, size: result.size, mtime: result.savedAt, content }));
+      setDirty(false);
+      setStatus("已保存");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "保存失败");
+    }
   }
 
   function handleImageClick(image: ImageIndexItem, index: number) {
@@ -447,6 +479,11 @@ function App() {
     if (flowchart.previewSrc) {
       openLightbox(flowchart.previewSrc, `${flowchart.language} 预览`);
     }
+  }
+
+  function handleHeadingClick(heading: HeadingIndexItem, index: number) {
+    scrollPreviewHeadingIntoView(index);
+    setFocusTarget({ line: heading.line, column: heading.column });
   }
 
   function openLightbox(src: string, alt: string) {
@@ -487,6 +524,16 @@ function App() {
     }
 
     const target = pane.querySelectorAll<HTMLElement>(".supermd-preview .supermd-flowchart")[index] ?? null;
+    scrollPreviewElementIntoView(target);
+  }
+
+  function scrollPreviewHeadingIntoView(index: number) {
+    const pane = previewPaneRef.current;
+    if (!pane) {
+      return;
+    }
+
+    const target = pane.querySelectorAll<HTMLElement>(".supermd-preview h1, .supermd-preview h2, .supermd-preview h3, .supermd-preview h4, .supermd-preview h5, .supermd-preview h6")[index] ?? null;
     scrollPreviewElementIntoView(target);
   }
 
@@ -873,6 +920,7 @@ function App() {
   }
 
   const imagePanelCount = images.length + flowcharts.length;
+  const quickPreviewCount = headings.length + imagePanelCount;
 
   return (
     <main className="app-shell">
@@ -895,7 +943,7 @@ function App() {
           <button type="button" className="icon-button" title="源码" onClick={handleToggleEditor}>
             <SquarePen size={18} />
           </button>
-          <button type="button" className="icon-button" title="图片" onClick={() => setImagePanelOpen((open) => !open)}>
+          <button type="button" className="icon-button" title="快速预览" onClick={() => setImagePanelOpen((open) => !open)}>
             {imagePanelOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
           </button>
         </div>
@@ -941,40 +989,85 @@ function App() {
         )}
 
         {imagePanelOpen && (
-          <aside className="image-panel" aria-label="文档图片">
+          <aside className="image-panel quick-preview-panel" aria-label="快速预览">
             <div className="image-panel-header">
-              <strong>图片</strong>
-              <span>{imagePanelCount}</span>
+              <strong>快速预览</strong>
+              <span>{quickPreviewCount}</span>
             </div>
-            <div className="image-grid">
-              {images.map((item, index) => (
-                <button type="button" className="image-card" key={`${item.src}-${item.line}-${item.column}`} onClick={() => handleImageClick(item, index)}>
-                  <img src={displayAssetUrl(item)} alt={item.alt || item.src} loading="lazy" />
-                  <span><b>图片</b>{String(index + 1).padStart(2, "0")}</span>
-                  <small>{item.alt || item.src}</small>
+            <div className="quick-preview-content">
+              <div className="quick-preview-tabs" role="tablist" aria-label="快速预览类型">
+                <button
+                  type="button"
+                  role="tab"
+                  className={`quick-preview-tab ${activeQuickPreviewTab === "outline" ? "is-active" : ""}`}
+                  aria-selected={activeQuickPreviewTab === "outline"}
+                  onClick={() => setActiveQuickPreviewTab("outline")}
+                >
+                  目录
+                  <span>{headings.length}</span>
                 </button>
-              ))}
-              {flowcharts.map((item, index) => (
-                <button type="button" className="image-card flowchart-card" key={`${item.id}-${item.line}-${item.column}`} onClick={() => handleFlowchartClick(item, index)}>
-                  {item.previewSrc ? (
-                    <img src={item.previewSrc} alt={`${item.language} 预览`} loading="lazy" />
-                  ) : (
-                    <div className="flowchart-thumb">{item.language}</div>
-                  )}
-                  <span><b>流程图</b>{String(images.length + index + 1).padStart(2, "0")}</span>
-                  <small>{item.language} · 第 {item.line} 行</small>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`quick-preview-tab ${activeQuickPreviewTab === "images" ? "is-active" : ""}`}
+                  aria-selected={activeQuickPreviewTab === "images"}
+                  onClick={() => setActiveQuickPreviewTab("images")}
+                >
+                  图片
+                  <span>{imagePanelCount}</span>
                 </button>
-              ))}
-              {imagePanelCount === 0 && <div className="empty-images">无图片</div>}
+              </div>
+
+              <div className="quick-preview-panel-body">
+                {activeQuickPreviewTab === "outline" ? (
+                  <nav className="outline-list" aria-label="文档目录">
+                    {headings.map((item, index) => (
+                      <button
+                        type="button"
+                        className="outline-item"
+                        style={{ paddingLeft: `${10 + Math.min(item.level - 1, 5) * 14}px` }}
+                        key={`${item.id}-${item.line}-${item.column}`}
+                        onClick={() => handleHeadingClick(item, index)}
+                      >
+                        <span>H{item.level}</span>
+                        <strong>{item.text || "未命名标题"}</strong>
+                      </button>
+                    ))}
+                    {headings.length === 0 && <div className="empty-images">暂无目录</div>}
+                  </nav>
+                ) : (
+                  <div className="image-grid">
+                    {images.map((item, index) => (
+                      <button type="button" className="image-card" key={`${item.src}-${item.line}-${item.column}`} onClick={() => handleImageClick(item, index)}>
+                        <img src={displayAssetUrl(item)} alt={item.alt || item.src} loading="lazy" />
+                        <span><b>图片</b>{String(index + 1).padStart(2, "0")}</span>
+                        <small>{item.alt || item.src}</small>
+                      </button>
+                    ))}
+                    {flowcharts.map((item, index) => (
+                      <button type="button" className="image-card flowchart-card" key={`${item.id}-${item.line}-${item.column}`} onClick={() => handleFlowchartClick(item, index)}>
+                        {item.previewSrc ? (
+                          <img src={item.previewSrc} alt={`${item.language} 预览`} loading="lazy" />
+                        ) : (
+                          <div className="flowchart-thumb">{item.language}</div>
+                        )}
+                        <span><b>流程图</b>{String(images.length + index + 1).padStart(2, "0")}</span>
+                        <small>{item.language} · 第 {item.line} 行</small>
+                      </button>
+                    ))}
+                    {imagePanelCount === 0 && <div className="empty-images">无图片</div>}
+                  </div>
+                )}
+              </div>
             </div>
           </aside>
         )}
       </section>
 
-      {imagePanelCount > 0 && (
-        <button type="button" className="floating-images" title="图片" onClick={() => setImagePanelOpen((open) => !open)}>
+      {quickPreviewCount > 0 && (
+        <button type="button" className="floating-images" title="快速预览" onClick={() => setImagePanelOpen((open) => !open)}>
           <Image size={20} />
-          <span>{imagePanelCount}</span>
+          <span>{quickPreviewCount}</span>
         </button>
       )}
 
