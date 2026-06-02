@@ -9,7 +9,7 @@ SuperMD 是一个基于 Tauri 2 + React 19 的桌面 Markdown 阅读与编辑器
 ## 功能特性
 
 - 增强 Markdown 渲染：支持 GFM、front matter、任务列表、表格、代码高亮、数学公式、标题锚点和原始 HTML 清洗。
-- 图表预览：支持 Mermaid 与 flowchart.js 代码块，并提供“预览 / 源码”切换。
+- 图表预览：支持 Mermaid、flowchart.js 与 PlantUML 代码块，并提供“预览 / 源码”切换。
 - 快速预览：侧边栏用 Tab 切换文档目录和图片列表，目录标题可快速跳转定位，图片、HTML 图片和流程图仍可定位并打开灯箱查看。
 - 源码编辑：内置 CodeMirror 6，支持行号、Markdown 语法高亮、自动换行、定位源行和保存。
 - 滚动同步：预览区与源码区按滚动比例互相同步，适合长文档校对。
@@ -22,7 +22,7 @@ SuperMD 是一个基于 Tauri 2 + React 19 的桌面 Markdown 阅读与编辑器
 - 前端框架：React 19、Vite 7、TypeScript
 - 编辑器：CodeMirror 6
 - Markdown 渲染：unified、remark、rehype、rehype-highlight、KaTeX
-- 图表：Mermaid、flowchart.js
+- 图表：Mermaid、flowchart.js、PlantUML 在线 SVG 预览
 - 安全处理：rehype-sanitize、DOMPurify
 - 测试：Vitest、Testing Library、jsdom
 
@@ -85,7 +85,7 @@ npm run build
 npm run tauri:build
 ```
 
-当前验证结果：46 个 Vitest 用例通过；前端构建通过。桌面安装包可按需通过 `npm run tauri:build` 构建。
+当前验证结果：48 个 Vitest 用例通过；前端构建通过。桌面安装包可按需通过 `npm run tauri:build` 构建。
 
 Vite 构建会提示部分 chunk 超过 500 kB，主要来自 Mermaid、KaTeX、CodeMirror 和 Markdown 渲染链路，属于当前富功能桌面包的已知体积信号。
 
@@ -104,7 +104,7 @@ SuperMD is a Tauri 2 + React 19 desktop Markdown reader and editor. It is built 
 ## Features
 
 - Enhanced Markdown rendering: GFM, front matter, task lists, tables, syntax highlighting, math, heading anchors, and sanitized raw HTML.
-- Diagram preview: Mermaid and flowchart.js code blocks with preview/source tabs.
+- Diagram preview: Mermaid, flowchart.js, and PlantUML code blocks with preview/source tabs.
 - Quick preview: switches between document outline and image lists in side-panel tabs; headings jump to the matching preview position, while Markdown images, HTML images, and rendered diagrams can still be located and opened in the lightbox.
 - Source editing: CodeMirror 6 editor with line numbers, Markdown highlighting, wrapping, source-line focus, and save support.
 - Scroll sync: preview and source panes stay aligned by scroll ratio for long-document review.
@@ -117,7 +117,7 @@ SuperMD is a Tauri 2 + React 19 desktop Markdown reader and editor. It is built 
 - Frontend: React 19, Vite 7, TypeScript
 - Editor: CodeMirror 6
 - Markdown: unified, remark, rehype, rehype-highlight, KaTeX
-- Diagrams: Mermaid, flowchart.js
+- Diagrams: Mermaid, flowchart.js, PlantUML online SVG preview
 - Sanitization: rehype-sanitize, DOMPurify
 - Tests: Vitest, Testing Library, jsdom
 
@@ -180,7 +180,7 @@ npm run build
 npm run tauri:build
 ```
 
-Current result: 46 Vitest tests passed; frontend build passed. Desktop packages can be built with `npm run tauri:build` when needed.
+Current result: 48 Vitest tests passed; frontend build passed. Desktop packages can be built with `npm run tauri:build` when needed.
 
 Vite reports several chunks over 500 kB, mainly from Mermaid, KaTeX, CodeMirror, and the Markdown rendering pipeline. This is a known size signal for the current rich desktop bundle.
 

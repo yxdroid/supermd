@@ -55,7 +55,7 @@ describe("indexImages", () => {
 });
 
 describe("indexFlowcharts", () => {
-  it("indexes mermaid and flowchart fences with source position", () => {
+  it("indexes mermaid, flowchart, and plantuml fences with source position", () => {
     const content = [
       "# Charts",
       "",
@@ -67,6 +67,12 @@ describe("indexFlowcharts", () => {
       "```flowchart",
       "graph LR",
       "C-->D",
+      "```",
+      "",
+      "```plantuml",
+      "@startuml",
+      "Alice -> Bob: Hi",
+      "@enduml",
       "```",
     ].join("\n");
 
@@ -86,6 +92,14 @@ describe("indexFlowcharts", () => {
         line: 8,
         column: 1,
         previewSrc: null,
+      },
+      {
+        id: "flow-2",
+        language: "plantuml",
+        code: "@startuml\nAlice -> Bob: Hi\n@enduml",
+        line: 13,
+        column: 1,
+        previewSrc: "https://www.plantuml.com/plantuml/svg/~h407374617274756d6c0a416c696365202d3e20426f623a2048690a40656e64756d6c",
       },
     ]);
   });
@@ -223,6 +237,22 @@ describe("renderMarkdown", () => {
     expect(html).not.toContain('<pre class="mermaid"');
     expect(html).not.toContain("flowchart-render-target");
   });
+
+  it("renders PlantUML fences as image-backed tabbed preview widgets", async () => {
+    const source = "@startuml\nAlice -> Bob: Hi\n@enduml";
+    const html = await renderMarkdown(["```plantuml", ...source.split("\n"), "```"].join("\n"));
+
+    expect(html).toContain("supermd-flowchart");
+    expect(html).toContain('data-flow-engine="plantuml"');
+    expect(html).toContain('class="supermd-plantuml-image"');
+    expect(html).toContain('src="https://www.plantuml.com/plantuml/svg/~h407374617274756d6c0a416c696365202d3e20426f623a2048690a40656e64756d6c"');
+    expect(html).toContain('data-plantuml-source-encoded="%40startuml%0AAlice%20-%3E%20Bob%3A%20Hi%0A%40enduml"');
+    expect(html).toContain("图片预览");
+    expect(html).toContain("代码");
+    expect(html).toContain("@startuml");
+    expect(html).not.toContain("flowchart-render-target");
+    expect(html).not.toContain('class="mermaid"');
+  });
 });
 
 describe("renderReadableFallback", () => {
@@ -298,5 +328,17 @@ describe("renderReadableFallback", () => {
     expect(html).toContain('data-flow-engine="mermaid"');
     expect(html).toContain('class="mermaid"');
     expect(html).not.toContain("flowchart-render-target");
+  });
+
+  it("renders PlantUML fences as image previews in the immediate fallback", () => {
+    const source = "@startuml\nAlice -> Bob: Hi\n@enduml";
+    const html = renderReadableFallback(["```plantuml", ...source.split("\n"), "```"].join("\n"));
+
+    expect(html).toContain("supermd-flowchart");
+    expect(html).toContain('data-flow-engine="plantuml"');
+    expect(html).toContain("supermd-plantuml-image");
+    expect(html).toContain("https://www.plantuml.com/plantuml/svg/~h407374617274756d6c0a416c696365202d3e20426f623a2048690a40656e64756d6c");
+    expect(html).toContain("data-flow-tab=\"preview\"");
+    expect(html).toContain("data-flow-tab=\"code\"");
   });
 });

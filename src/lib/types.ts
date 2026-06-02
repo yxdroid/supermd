@@ -24,7 +24,7 @@ export interface ImageIndexItem {
 
 export interface FlowchartIndexItem {
   id: string;
-  language: "mermaid" | "flowchart";
+  language: "mermaid" | "flowchart" | "plantuml";
   code: string;
   line: number;
   column: number;

@@ -12,6 +12,7 @@ export function sanitizePreviewHtml(html: string): string {
       "dominant-baseline",
       "data-mermaid-source-encoded",
       "data-rendered-mermaid-encoded",
+      "data-plantuml-source-encoded",
     ],
     HTML_INTEGRATION_POINTS: { foreignobject: true },
   });

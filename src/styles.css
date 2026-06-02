@@ -337,6 +337,23 @@ button {
   font-size: 13px;
 }
 
+.supermd-plantuml-preview {
+  display: flex;
+  justify-content: center;
+  min-height: 120px;
+  overflow: auto;
+  padding: 18px;
+}
+
+.supermd-plantuml-image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  cursor: zoom-in;
+  background: #fff;
+}
+
 .supermd-flow-panel[data-flow-panel="code"] pre {
   margin: 0;
 }

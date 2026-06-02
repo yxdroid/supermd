@@ -15,6 +15,8 @@ import { visit } from "unist-util-visit";
 import { resolveAssetPath, isRemoteOrDataUrl } from "./paths";
 import type { FlowchartIndexItem, HeadingIndexItem, ImageIndexItem } from "./types";
 
+type DiagramLanguage = "mermaid" | "flowchart" | "plantuml";
+
 type MarkdownNode = {
   type: string;
   url?: string;
@@ -71,9 +73,10 @@ const sanitizeSchema = {
       "data-flow-panel",
       "data-flow-engine",
       "data-mermaid-source-encoded",
+      "data-plantuml-source-encoded",
     ],
     a: [...(defaultSchema.attributes?.a ?? []), "href", "name", "target", "rel"],
-    img: [...(defaultSchema.attributes?.img ?? []), "src", "alt", "title", "width", "height", "loading"],
+    img: [...(defaultSchema.attributes?.img ?? []), "src", "alt", "title", "width", "height", "loading", "data-plantuml-source-encoded"],
     input: ["type", "checked", "disabled"],
     code: ["className"],
     pre: ["className"],
@@ -110,18 +113,20 @@ export function indexImages(content: string, documentPath: string): ImageIndexIt
 }
 
 export function indexFlowcharts(content: string): FlowchartIndexItem[] {
-  const matches = content.matchAll(/^```(mermaid|flowchart)\s*\n([\s\S]*?)\n```/gim);
+  const matches = content.matchAll(/^```(mermaid|flowchart|plantuml)\s*\n([\s\S]*?)\n```/gim);
   return [...matches].map((match, index) => {
     const prefix = content.slice(0, match.index ?? 0);
     const lines = prefix.split("\n");
+    const language = normalizeDiagramLanguage(match[1]);
+    const code = match[2];
 
     return {
       id: `flow-${index}`,
-      language: match[1].toLowerCase() as "mermaid" | "flowchart",
-      code: match[2],
+      language,
+      code,
       line: lines.length,
       column: lines[lines.length - 1].length + 1,
-      previewSrc: null,
+      previewSrc: language === "plantuml" ? plantUmlSvgUrl(code) : null,
     };
   });
 }
@@ -347,7 +352,7 @@ function renderCodeBlock(code: string, lang: string): string {
   return `<pre><code${lang ? ` class="language-${escapeHtml(lang)}"` : ""}>${escapeHtml(code)}</code></pre>`;
 }
 
-function flowchartChildren(code: string, language: "mermaid" | "flowchart"): HastNode[] {
+function flowchartChildren(code: string, language: DiagramLanguage): HastNode[] {
   return [
     {
       type: "element",
@@ -397,7 +402,7 @@ function flowchartChildren(code: string, language: "mermaid" | "flowchart"): Has
   ];
 }
 
-function renderDiagramPreview(code: string, language: "mermaid" | "flowchart"): string {
+function renderDiagramPreview(code: string, language: DiagramLanguage): string {
   if (language === "mermaid") {
     return [
       `<div class="mermaid" data-flow-engine="mermaid" data-mermaid-source-encoded="${escapeHtml(encodeURIComponent(normalizeMermaidSource(code)))}">`,
@@ -406,13 +411,17 @@ function renderDiagramPreview(code: string, language: "mermaid" | "flowchart"): 
     ].join("");
   }
 
+  if (language === "plantuml") {
+    return renderPlantUmlPreview(code);
+  }
+
   return [
     '<div class="flowchart-render-target" data-flow-engine="flowchart"></div>',
     `<pre class="flowchart-source" hidden>${escapeHtml(code)}</pre>`,
   ].join("");
 }
 
-function diagramPreviewChildren(code: string, language: "mermaid" | "flowchart"): HastNode[] {
+function diagramPreviewChildren(code: string, language: DiagramLanguage): HastNode[] {
   if (language === "mermaid") {
     return [
       {
@@ -435,6 +444,30 @@ function diagramPreviewChildren(code: string, language: "mermaid" | "flowchart")
     ];
   }
 
+  if (language === "plantuml") {
+    return [
+      {
+        type: "element",
+        tagName: "div",
+        properties: { className: ["supermd-plantuml-preview"], "data-flow-engine": "plantuml" },
+        children: [
+          {
+            type: "element",
+            tagName: "img",
+            properties: {
+              className: ["supermd-plantuml-image"],
+              src: plantUmlSvgUrl(code),
+              alt: "PlantUML 预览",
+              loading: "lazy",
+              "data-plantuml-source-encoded": encodeURIComponent(normalizePlantUmlSource(code)),
+            },
+            children: [],
+          },
+        ],
+      },
+    ];
+  }
+
   return [
     {
       type: "element",
@@ -451,7 +484,7 @@ function diagramPreviewChildren(code: string, language: "mermaid" | "flowchart")
   ];
 }
 
-function diagramLanguageFromClasses(classes: string[], code: string): "mermaid" | "flowchart" | null {
+function diagramLanguageFromClasses(classes: string[], code: string): DiagramLanguage | null {
   if (classes.some((name) => name === "language-flowchart")) {
     return isMermaidDiagramCode(code) ? "mermaid" : "flowchart";
   }
@@ -460,10 +493,14 @@ function diagramLanguageFromClasses(classes: string[], code: string): "mermaid" 
     return "mermaid";
   }
 
+  if (classes.some((name) => name === "language-plantuml" || name === "plantuml" || name === "language-puml" || name === "puml")) {
+    return "plantuml";
+  }
+
   return null;
 }
 
-function toDiagramLanguage(lang: string, code: string): "mermaid" | "flowchart" | null {
+function toDiagramLanguage(lang: string, code: string): DiagramLanguage | null {
   const normalized = lang.toLowerCase();
   if (normalized === "mermaid") {
     return "mermaid";
@@ -473,7 +510,16 @@ function toDiagramLanguage(lang: string, code: string): "mermaid" | "flowchart" 
     return isMermaidDiagramCode(code) ? "mermaid" : "flowchart";
   }
 
+  if (normalized === "plantuml" || normalized === "puml") {
+    return "plantuml";
+  }
+
   return null;
+}
+
+function normalizeDiagramLanguage(language: string): DiagramLanguage {
+  const normalized = language.toLowerCase();
+  return normalized === "puml" ? "plantuml" : normalized as DiagramLanguage;
 }
 
 function isMermaidDiagramCode(code: string): boolean {
@@ -507,6 +553,34 @@ function extractMarkdownText(node: MarkdownNode): string {
 
 function normalizeMermaidSource(code: string): string {
   return code.trim().replace(/<br\s*\/?>/gi, "<br/>");
+}
+
+function renderPlantUmlPreview(code: string): string {
+  const source = normalizePlantUmlSource(code);
+  return [
+    '<div class="supermd-plantuml-preview" data-flow-engine="plantuml">',
+    `<img class="supermd-plantuml-image" src="${escapeHtml(plantUmlSvgUrl(code))}" alt="PlantUML 预览" loading="lazy" data-plantuml-source-encoded="${escapeHtml(encodeURIComponent(source))}">`,
+    "</div>",
+  ].join("");
+}
+
+function plantUmlSvgUrl(code: string): string {
+  return `https://www.plantuml.com/plantuml/svg/~h${plantUmlHexEncode(normalizePlantUmlSource(code))}`;
+}
+
+function plantUmlHexEncode(source: string): string {
+  return [...new TextEncoder().encode(source)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function normalizePlantUmlSource(code: string): string {
+  const source = code.trim();
+  if (/^@start\w*/i.test(source)) {
+    return source;
+  }
+
+  return `@startuml\n${source}\n@enduml`;
 }
 
 function indexHtmlImages(content: string, documentPath: string, offset: number): ImageIndexItem[] {
