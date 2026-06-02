@@ -10,6 +10,7 @@ import { basename, isRemoteOrDataUrl, resolveAssetPath } from "./lib/paths";
 import { sanitizePreviewHtml } from "./lib/sanitize";
 import { scrollRatio, scrollTopForRatio } from "./lib/scrollSync";
 import { forgetLastDocumentPath, readLastDocumentPath, rememberLastDocumentPath } from "./lib/session";
+import { createLatestOpenRequestGuard, isMarkdownOpenPath, latestMarkdownOpenPath } from "./lib/openRequests";
 import {
   getRecentFiles,
   listenForOpenedMarkdownFiles,
@@ -74,6 +75,7 @@ function App() {
   const workerFailedRef = useRef(false);
   const renderVersionRef = useRef(0);
   const contentRef = useRef(content);
+  const openRequestGuardRef = useRef(createLatestOpenRequestGuard());
   const documentPathRef = useRef(documentPayload.path || "/supermd/untitled.md");
   const scrollOriginRef = useRef<"preview" | "editor" | null>(null);
   const scrollResetTimerRef = useRef<number | null>(null);
@@ -173,8 +175,7 @@ function App() {
     let unlisten: (() => void) | undefined;
 
     async function openSystemRequestedFile(paths: string[]): Promise<boolean> {
-      const uniquePaths = Array.from(new Set(paths)).filter(isMarkdownPath);
-      const path = uniquePaths[0];
+      const path = latestMarkdownOpenPath(paths);
       if (!path) {
         return false;
       }
@@ -190,7 +191,7 @@ function App() {
 
     async function restoreLastOpenedFile() {
       const path = readLastDocumentPath();
-      if (!path || !isMarkdownPath(path)) {
+      if (!path || !isMarkdownOpenPath(path)) {
         return;
       }
 
@@ -361,8 +362,22 @@ function App() {
   }
 
   async function loadFromPath(path: string) {
+    const request = openRequestGuardRef.current.next();
     setStatus("读取中");
-    const opened = await openMarkdownFile(path);
+    let opened: DocumentPayload;
+    try {
+      opened = await openMarkdownFile(path);
+    } catch (error) {
+      if (openRequestGuardRef.current.isLatest(request)) {
+        throw error;
+      }
+      return;
+    }
+
+    if (!openRequestGuardRef.current.isLatest(request)) {
+      return;
+    }
+
     preservePreviewOnNextRenderRef.current = false;
     rememberLastDocumentPath(opened.path || path);
     setDocumentPayload(opened);
@@ -1122,10 +1137,6 @@ function normalizeBrowserPath(path: string): string {
 
 function readWebkitRelativePath(file: File): string {
   return (file as File & { webkitRelativePath?: string }).webkitRelativePath ?? "";
-}
-
-function isMarkdownPath(path: string): boolean {
-  return /\.(md|markdown|mdown|mkd)$/i.test(path);
 }
 
 export default App;
