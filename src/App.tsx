@@ -353,12 +353,15 @@ function App() {
   }, [renderedHtml, editorOpen]);
 
   async function handleOpen() {
-    const path = await pickMarkdownPath();
-    if (!path) {
+    const result = await pickMarkdownPath();
+    if (result.kind === "unsupported") {
       folderInputRef.current?.click();
       return;
     }
-    await loadFromPath(path);
+    if (result.kind === "cancelled") {
+      return;
+    }
+    await loadFromPath(result.path);
   }
 
   async function loadFromPath(path: string) {

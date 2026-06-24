@@ -5,9 +5,14 @@ import type { AssetResult, DocumentPayload, RecentFile, SaveResult } from "./typ
 
 export const OPENED_MARKDOWN_FILES_EVENT = "supermd://opened-files";
 
-export async function pickMarkdownPath(): Promise<string | null> {
+export type MarkdownPickResult =
+  | { kind: "unsupported" }
+  | { kind: "cancelled" }
+  | { kind: "selected"; path: string };
+
+export async function pickMarkdownPath(): Promise<MarkdownPickResult> {
   if (!isTauri()) {
-    return null;
+    return { kind: "unsupported" };
   }
 
   const selected = await open({
@@ -15,7 +20,9 @@ export async function pickMarkdownPath(): Promise<string | null> {
     filters: [{ name: "Markdown", extensions: ["md", "markdown", "mdown", "mkd"] }],
   });
 
-  return typeof selected === "string" ? selected : null;
+  return typeof selected === "string"
+    ? { kind: "selected", path: selected }
+    : { kind: "cancelled" };
 }
 
 export async function openMarkdownFile(path?: string): Promise<DocumentPayload> {
