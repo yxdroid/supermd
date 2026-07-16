@@ -5,8 +5,14 @@ use std::{
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter, Manager, State, Url};
+use tauri::{AppHandle, Manager, State};
 
+#[cfg(target_os = "macos")]
+use tauri::Emitter;
+#[cfg(any(target_os = "macos", test))]
+use tauri::Url;
+
+#[cfg(target_os = "macos")]
 const OPENED_MARKDOWN_FILES_EVENT: &str = "supermd://opened-files";
 
 #[derive(Default)]
@@ -125,10 +131,10 @@ pub fn run() {
         ])
         .build(context)
         .expect("error while building SuperMD")
-        .run(|app, event| {
+        .run(|_app, _event| {
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Opened { urls } = event {
-                handle_opened_urls(app, urls);
+            if let tauri::RunEvent::Opened { urls } = _event {
+                handle_opened_urls(_app, urls);
             }
         });
 }
@@ -195,6 +201,7 @@ fn is_remote_or_data_url(value: &str) -> bool {
         || lower.starts_with("//")
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn opened_url_to_markdown_path(url: &Url) -> Option<String> {
     if url.scheme() != "file" {
         return None;
@@ -204,6 +211,7 @@ fn opened_url_to_markdown_path(url: &Url) -> Option<String> {
     is_markdown_path(&path).then(|| path.to_string_lossy().to_string())
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn is_markdown_path(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
