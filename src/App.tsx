@@ -1,10 +1,12 @@
 import { FileText, FolderOpen, Image, PanelRightClose, PanelRightOpen, Save, SquarePen } from "lucide-react";
 import mermaid from "mermaid";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent, PointerEvent, WheelEvent } from "react";
+import type { MouseEvent, PointerEvent } from "react";
+import { browserFilePath, buildBrowserFolderIndex, normalizeBrowserPath } from "./lib/browserFolder";
+import type { BrowserFolderNode } from "./lib/browserFolder";
 import { indexFlowcharts, indexHeadings, indexImages, renderMarkdown, renderReadableFallback } from "./lib/markdown";
 import { renderMermaidPreviewElements } from "./lib/diagramRender";
-import { DEFAULT_IMAGE_VIEW, panImageView, resetImageView, zoomImageView } from "./lib/imageViewer";
+import { constrainImageView, DEFAULT_IMAGE_VIEW, panImageView, resetImageView, toggleImageZoom, zoomImageView, zoomImageViewToScale } from "./lib/imageViewer";
 import type { ImageView } from "./lib/imageViewer";
 import { basename, isRemoteOrDataUrl, resolveAssetPath } from "./lib/paths";
 import { sanitizePreviewHtml } from "./lib/sanitize";
@@ -23,12 +25,16 @@ import {
 } from "./lib/tauriClient";
 import type { SourceEditorHandle } from "./components/SourceEditor";
 import type { DocumentPayload, FlowchartIndexItem, HeadingIndexItem, ImageIndexItem, RecentFile, RenderState } from "./lib/types";
-import type { MarkdownWorkerResponse } from "./workers/markdown.worker";
-import MarkdownWorker from "./workers/markdown.worker?worker&inline";
 
 const SourceEditor = lazy(() => import("./components/SourceEditor").then((module) => ({ default: module.SourceEditor })));
 
-type QuickPreviewTab = "outline" | "images";
+type SidePanelTab = "outline" | "images" | "files";
+type FolderDocument = {
+  path: string;
+  name: string;
+  label: string;
+  file: File | null;
+};
 
 const EMPTY_DOC: DocumentPayload = {
   path: "",
@@ -57,24 +63,32 @@ function App() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorInitialScrollRatio, setEditorInitialScrollRatio] = useState(0);
   const [imagePanelOpen, setImagePanelOpen] = useState(false);
-  const [activeQuickPreviewTab, setActiveQuickPreviewTab] = useState<QuickPreviewTab>("outline");
+  const [activeSidePanelTab, setActiveSidePanelTab] = useState<SidePanelTab>("outline");
   const [dirty, setDirty] = useState(false);
   const [focusTarget, setFocusTarget] = useState<{ line: number; column: number } | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+  const [folderName, setFolderName] = useState("");
+  const [folderFiles, setFolderFiles] = useState<FolderDocument[]>([]);
+  const [folderTree, setFolderTree] = useState<BrowserFolderNode[]>([]);
+  const [collapsedFolderPaths, setCollapsedFolderPaths] = useState<Set<string>>(new Set());
   const [browserAssetUrls, setBrowserAssetUrls] = useState<Map<string, string>>(new Map());
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [imageView, setImageView] = useState<ImageView>(DEFAULT_IMAGE_VIEW);
   const [imageDragging, setImageDragging] = useState(false);
   const [status, setStatus] = useState("就绪");
   const previewPaneRef = useRef<HTMLElement | null>(null);
+  const lightboxStageRef = useRef<HTMLDivElement | null>(null);
+  const lightboxImageRef = useRef<HTMLImageElement | null>(null);
   const sourceEditorRef = useRef<SourceEditorHandle | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const openMenuRef = useRef<HTMLDivElement | null>(null);
   const browserAssetUrlsRef = useRef(browserAssetUrls);
   const workerRef = useRef<Worker | null>(null);
-  const workerFailedRef = useRef(false);
+  const workerFailedRef = useRef(true);
   const renderVersionRef = useRef(0);
   const contentRef = useRef(content);
+  const imageViewRef = useRef(imageView);
   const openRequestGuardRef = useRef(createLatestOpenRequestGuard());
   const documentPathRef = useRef(documentPayload.path || "/supermd/untitled.md");
   const scrollOriginRef = useRef<"preview" | "editor" | null>(null);
@@ -91,6 +105,11 @@ function App() {
     startY: number;
     startView: ImageView;
   } | null>(null);
+  const lightboxClickIntentRef = useRef<"image" | "backdrop" | null>(null);
+  const lightboxPointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const lightboxPinchRef = useRef<{ distance: number; startView: ImageView } | null>(null);
+  const lightboxSuppressClickRef = useRef(false);
+  const [openMenuOpen, setOpenMenuOpen] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -121,8 +140,82 @@ function App() {
   }, [content]);
 
   useEffect(() => {
+    imageViewRef.current = imageView;
+  }, [imageView]);
+
+  useEffect(() => {
+    if (!lightbox) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      setImageView((current) => clampLightboxView(current));
+    });
+    const stage = lightboxStageRef.current;
+
+    function handleWheel(event: globalThis.WheelEvent) {
+      if (!stage) {
+        return;
+      }
+
+      const target = event.target;
+      if (target instanceof Node && !stage.contains(target) && !event.ctrlKey && Math.abs(event.deltaY) >= 16) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      const origin = getZoomOrigin(stage, event.clientX, event.clientY);
+
+      setImageView((current) => clampLightboxView(
+        zoomImageView(current, event.deltaY, origin, {
+          precise: event.ctrlKey || Math.abs(event.deltaY) < 16,
+        }),
+      ));
+    }
+
+    function handleResize() {
+      setImageView((current) => clampLightboxView(current));
+    }
+
+    window.addEventListener("wheel", handleWheel, { passive: false, capture: true });
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("wheel", handleWheel, { capture: true });
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [lightbox]);
+
+  useEffect(() => {
     documentPathRef.current = documentPayload.path || "/supermd/untitled.md";
   }, [documentPayload.path]);
+
+  useEffect(() => {
+    if (activeSidePanelTab !== "files" || folderFiles.length > 0) {
+      return;
+    }
+
+    setActiveSidePanelTab(headings.length > 0 ? "outline" : "images");
+  }, [activeSidePanelTab, folderFiles.length, headings.length]);
+
+  useEffect(() => {
+    if (!openMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: globalThis.PointerEvent) {
+      const target = event.target;
+      if (target instanceof Node && openMenuRef.current?.contains(target)) {
+        return;
+      }
+
+      setOpenMenuOpen(false);
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [openMenuOpen]);
 
   useEffect(() => {
     if (!editorOpen) {
@@ -233,9 +326,23 @@ function App() {
   }, []);
 
   useEffect(() => {
-    workerRef.current = new MarkdownWorker();
+    return undefined;
+    /*
     workerRef.current.onmessage = (event: MessageEvent<MarkdownWorkerResponse>) => {
       if (event.data.version !== renderVersionRef.current) {
+        return;
+      }
+
+      if (event.data.unsupported) {
+        workerFailedRef.current = true;
+        workerRef.current?.terminate();
+        workerRef.current = null;
+        setStatus("当前环境已切换主线程渲染");
+        renderEnhancedInMainThread(event.data.version, contentRef.current, documentPathRef.current).catch((error) => {
+          console.error("Main-thread Markdown render failed", error);
+          setRenderState("error");
+          setStatus("已使用基础预览");
+        });
         return;
       }
 
@@ -261,6 +368,7 @@ function App() {
     };
 
     return () => workerRef.current?.terminate();
+    */
   }, []);
 
   useEffect(() => {
@@ -353,15 +461,21 @@ function App() {
   }, [renderedHtml, editorOpen]);
 
   async function handleOpen() {
+    setOpenMenuOpen(false);
     const result = await pickMarkdownPath();
     if (result.kind === "unsupported") {
-      folderInputRef.current?.click();
+      fileInputRef.current?.click();
       return;
     }
     if (result.kind === "cancelled") {
       return;
     }
     await loadFromPath(result.path);
+  }
+
+  function handleOpenFolder() {
+    setOpenMenuOpen(false);
+    folderInputRef.current?.click();
   }
 
   async function loadFromPath(path: string) {
@@ -383,6 +497,8 @@ function App() {
 
     preservePreviewOnNextRenderRef.current = false;
     rememberLastDocumentPath(opened.path || path);
+    applySingleFileFolderContext(path);
+    replaceBrowserAssetUrls(new Map());
     setDocumentPayload(opened);
     setContent(opened.content);
     setDirty(false);
@@ -419,9 +535,73 @@ function App() {
       return;
     }
 
+    const path = browserFilePath(file);
+    applySingleFileFolderContext(path, file);
+    replaceBrowserAssetUrls(new Map([[path, URL.createObjectURL(file)]]));
+    await loadBrowserDocument(file, path, "浏览器预览");
+  }
+
+  async function handleBrowserFolder(files: FileList | null) {
+    const fileArray = Array.from(files ?? []);
+    if (fileArray.length === 0) {
+      return;
+    }
+
+    const folderIndex = buildBrowserFolderIndex(fileArray);
+    if (!folderIndex || folderIndex.markdownFiles.length === 0) {
+      setFolderName(folderIndex?.folderName ?? "");
+      setFolderFiles([]);
+      setFolderTree([]);
+      setCollapsedFolderPaths(new Set());
+      setStatus("文件夹中未找到 Markdown");
+      return;
+    }
+
+    const fileLookup = new Map(fileArray.map((file) => [browserFilePath(file), file]));
+    const urls = new Map<string, string>();
+    for (const file of fileArray) {
+      const path = browserFilePath(file);
+      urls.set(path, URL.createObjectURL(file));
+    }
+    replaceBrowserAssetUrls(urls);
+
+    const nextFolderFiles = folderIndex.markdownFiles.reduce<FolderDocument[]>((collection, entry) => {
+      const file = fileLookup.get(entry.path);
+      if (file) {
+        collection.push({ ...entry, file });
+      }
+      return collection;
+    }, []);
+
+    if (nextFolderFiles.length === 0) {
+      setFolderName(folderIndex.folderName);
+      setFolderFiles([]);
+      setFolderTree([]);
+      setCollapsedFolderPaths(new Set());
+      setStatus("文件夹中未找到可读取的 Markdown");
+      return;
+    }
+
+    setFolderName(folderIndex.folderName);
+    setFolderFiles(nextFolderFiles);
+    setFolderTree(folderIndex.tree);
+    setCollapsedFolderPaths(new Set());
+    setImagePanelOpen(true);
+    setActiveSidePanelTab("files");
+    const firstFolderFile = nextFolderFiles[0];
+    if (!firstFolderFile.file) {
+      setStatus("文件夹中未找到可读取的 Markdown");
+      return;
+    }
+    await loadBrowserDocument(
+      firstFolderFile.file,
+      firstFolderFile.path,
+      `文件夹预览：${folderIndex.folderName}（${nextFolderFiles.length} 个 Markdown）`,
+    );
+  }
+
+  async function loadBrowserDocument(file: File, path: string, nextStatus: string) {
     const text = await file.text();
-    const path = readWebkitRelativePath(file) || file.name;
-    replaceBrowserAssetUrls(new Map([[normalizeBrowserPath(path), URL.createObjectURL(file)]]));
     preservePreviewOnNextRenderRef.current = false;
     forgetLastDocumentPath();
     setDocumentPayload({
@@ -433,41 +613,37 @@ function App() {
     });
     setContent(text);
     setDirty(false);
-    setStatus("浏览器预览");
+    setStatus(nextStatus);
   }
 
-  async function handleBrowserFolder(files: FileList | null) {
-    const fileArray = Array.from(files ?? []);
-    if (fileArray.length === 0) {
+  async function handleFolderFileSelect(file: FolderDocument) {
+    if (file.file) {
+      await loadBrowserDocument(file.file, file.path, `文件夹预览：${folderName} / ${file.label}`);
       return;
     }
 
-    const markdownFile = fileArray.find((file) => /\.(md|markdown|mdown|mkd)$/i.test(file.name));
-    if (!markdownFile) {
-      setStatus("文件夹中未找到 Markdown");
-      return;
-    }
+    await loadFromPath(file.path);
+  }
 
-    const urls = new Map<string, string>();
-    for (const file of fileArray) {
-      const path = readWebkitRelativePath(file) || file.name;
-      urls.set(normalizeBrowserPath(path), URL.createObjectURL(file));
-    }
-    replaceBrowserAssetUrls(urls);
+  function applySingleFileFolderContext(path: string, file: File | null = null) {
+    const normalizedPath = normalizeBrowserPath(path);
+    const segments = normalizedPath.split("/").filter((segment) => segment.length > 0);
+    const name = segments[segments.length - 1] || path;
+    const directorySegments = segments.slice(0, -1);
+    const directoryName = directorySegments[directorySegments.length - 1] || "当前文件";
+    const label = directorySegments.length > 0 ? segments.slice(-1)[0] : name;
 
-    const text = await markdownFile.text();
-    preservePreviewOnNextRenderRef.current = false;
-    forgetLastDocumentPath();
-    setDocumentPayload({
-      path: readWebkitRelativePath(markdownFile) || markdownFile.name,
-      content: text,
-      size: markdownFile.size,
-      mtime: markdownFile.lastModified,
-      encoding: "utf-8",
-    });
-    setContent(text);
-    setDirty(false);
-    setStatus(`浏览器文件夹预览：${fileArray.length} 个文件`);
+    setFolderName(directoryName);
+    setFolderFiles([{ path, name, label, file }]);
+    setFolderTree([{
+      type: "file",
+      path,
+      name,
+      label,
+    }]);
+    setCollapsedFolderPaths(new Set());
+    setImagePanelOpen(true);
+    setActiveSidePanelTab("files");
   }
 
   async function handleSave() {
@@ -507,7 +683,7 @@ function App() {
   function openLightbox(src: string, alt: string) {
     setImageView(resetImageView());
     setImageDragging(false);
-    imageDragRef.current = null;
+    resetLightboxInteraction();
     setLightbox({ src, alt });
   }
 
@@ -515,7 +691,15 @@ function App() {
     setLightbox(null);
     setImageView(resetImageView());
     setImageDragging(false);
+    resetLightboxInteraction();
+  }
+
+  function resetLightboxInteraction() {
     imageDragRef.current = null;
+    lightboxClickIntentRef.current = null;
+    lightboxPinchRef.current = null;
+    lightboxPointersRef.current.clear();
+    lightboxSuppressClickRef.current = false;
   }
 
   function scrollPreviewImageIntoView(image: ImageIndexItem, index: number) {
@@ -766,35 +950,61 @@ function App() {
     }
   }
 
-  function handleLightboxWheel(event: WheelEvent<HTMLDivElement>) {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const rect = event.currentTarget.getBoundingClientRect();
-    setImageView((current) => zoomImageView(current, event.deltaY, {
-      x: event.clientX - rect.left - (rect.width / 2),
-      y: event.clientY - rect.top - (rect.height / 2),
-    }));
-  }
-
   function handleLightboxPointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 || event.target === event.currentTarget) {
+    if (event.pointerType !== "touch" && event.button !== 0) {
       return;
     }
 
-    event.preventDefault();
     event.stopPropagation();
+    if (event.pointerType === "touch") {
+      event.preventDefault();
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
+    lightboxClickIntentRef.current = event.target instanceof Element && event.target.closest("img") ? "image" : "backdrop";
+    lightboxPointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+    if (lightboxPointersRef.current.size === 2) {
+      imageDragRef.current = null;
+      setImageDragging(false);
+      lightboxPinchRef.current = {
+        distance: readPointerDistance(),
+        startView: imageViewRef.current,
+      };
+      return;
+    }
+
+    if (event.target === event.currentTarget) {
+      return;
+    }
+
     imageDragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      startView: imageView,
+      startView: imageViewRef.current,
     };
-    setImageDragging(imageView.scale > 1);
+    setImageDragging(imageViewRef.current.scale > 1);
   }
 
   function handleLightboxPointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (lightboxPointersRef.current.has(event.pointerId)) {
+      lightboxPointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+
+    const pinch = lightboxPinchRef.current;
+    if (pinch && lightboxPointersRef.current.size >= 2) {
+      event.preventDefault();
+      event.stopPropagation();
+      lightboxSuppressClickRef.current = true;
+      setImageDragging(false);
+      setImageView(clampLightboxView(zoomImageViewToScale(
+        pinch.startView,
+        pinch.startView.scale * (readPointerDistance() / Math.max(pinch.distance, 1)),
+        getZoomOriginFromPoint(event.currentTarget, readPointerCenter()),
+      )));
+      return;
+    }
+
     const drag = imageDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) {
       return;
@@ -802,22 +1012,161 @@ function App() {
 
     event.preventDefault();
     event.stopPropagation();
-    setImageView(panImageView(drag.startView, event.clientX - drag.startX, event.clientY - drag.startY));
+    if (Math.abs(event.clientX - drag.startX) > 4 || Math.abs(event.clientY - drag.startY) > 4) {
+      lightboxSuppressClickRef.current = true;
+    }
+    setImageView(clampLightboxView(
+      panImageView(drag.startView, event.clientX - drag.startX, event.clientY - drag.startY),
+    ));
   }
 
   function handleLightboxPointerEnd(event: PointerEvent<HTMLDivElement>) {
-    const drag = imageDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    imageDragRef.current = null;
-    setImageDragging(false);
+    lightboxPointersRef.current.delete(event.pointerId);
+
+    const drag = imageDragRef.current;
+    if (drag?.pointerId === event.pointerId) {
+      event.preventDefault();
+      event.stopPropagation();
+      imageDragRef.current = null;
+      setImageDragging(false);
+    }
+
+    if (lightboxPointersRef.current.size < 2) {
+      lightboxPinchRef.current = null;
+    }
+  }
+
+  function handleLightboxClick(event: MouseEvent<HTMLDivElement>) {
+    const intent = lightboxClickIntentRef.current
+      ?? (event.target instanceof Element && event.target.closest("img") ? "image" : "backdrop");
+    lightboxClickIntentRef.current = null;
+    const origin = getZoomOrigin(event.currentTarget, event.clientX, event.clientY);
+
+    if (lightboxSuppressClickRef.current) {
+      lightboxSuppressClickRef.current = false;
+      event.stopPropagation();
+      return;
+    }
+
+    if (intent === "backdrop") {
+      event.stopPropagation();
+      return;
+    }
+
+    if (intent !== "image" && event.target === event.currentTarget) {
+      return;
+    }
+
+    event.stopPropagation();
+    setImageView((current) => clampLightboxView(
+      toggleImageZoom(current, origin),
+    ));
+  }
+
+  function clampLightboxView(next: ImageView) {
+    const stage = lightboxStageRef.current;
+    const image = lightboxImageRef.current;
+    if (!stage || !image) {
+      return next;
+    }
+
+    return constrainImageView(next, {
+      viewportWidth: stage.clientWidth,
+      viewportHeight: stage.clientHeight,
+      imageWidth: image.clientWidth,
+      imageHeight: image.clientHeight,
+    });
+  }
+
+  function getZoomOrigin(stage: HTMLDivElement, clientX: number, clientY: number) {
+    const rect = stage.getBoundingClientRect();
+    return {
+      x: clientX - rect.left - (rect.width / 2),
+      y: clientY - rect.top - (rect.height / 2),
+    };
+  }
+
+  function getZoomOriginFromPoint(stage: HTMLDivElement, point: { x: number; y: number }) {
+    return getZoomOrigin(stage, point.x, point.y);
+  }
+
+  function readPointerDistance() {
+    const [first, second] = [...lightboxPointersRef.current.values()];
+    if (!first || !second) {
+      return 1;
+    }
+
+    return Math.hypot(second.x - first.x, second.y - first.y);
+  }
+
+  function readPointerCenter() {
+    const [first, second] = [...lightboxPointersRef.current.values()];
+    if (!first || !second) {
+      return { x: 0, y: 0 };
+    }
+
+    return {
+      x: (first.x + second.x) / 2,
+      y: (first.y + second.y) / 2,
+    };
+  }
+
+  function renderFolderNodes(nodes: BrowserFolderNode[], depth = 0) {
+    return nodes.map((node) => {
+      if (node.type === "directory") {
+        const collapsed = collapsedFolderPaths.has(node.path);
+        return (
+          <div className="folder-branch" key={`dir-${node.path || node.name}`}>
+            <button
+              type="button"
+              className="folder-branch-toggle"
+              style={{ paddingLeft: `${12 + depth * 16}px` }}
+              aria-expanded={!collapsed}
+              onClick={() => {
+                setCollapsedFolderPaths((current) => {
+                  const next = new Set(current);
+                  if (next.has(node.path)) {
+                    next.delete(node.path);
+                  } else {
+                    next.add(node.path);
+                  }
+                  return next;
+                });
+              }}
+            >
+              <span>{collapsed ? "▸" : "▾"}</span>
+              <strong>{node.name}</strong>
+            </button>
+            {!collapsed && (
+              <div className="folder-node-children">
+                {renderFolderNodes(node.children, depth + 1)}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      return (
+        <button
+          type="button"
+          key={node.path}
+          className={`folder-file folder-tree-file ${documentPayload.path === node.path ? "is-active" : ""}`}
+          style={{ paddingLeft: `${12 + depth * 16}px` }}
+          onClick={() => {
+            const file = folderFiles.find((item) => item.path === node.path);
+            if (file) {
+              void handleFolderFileSelect(file);
+            }
+          }}
+        >
+          <strong>{node.name}</strong>
+          <span>{node.label}</span>
+        </button>
+      );
+    });
   }
 
   function scheduleDiagramRender() {
@@ -938,7 +1287,8 @@ function App() {
   }
 
   const imagePanelCount = images.length + flowcharts.length;
-  const quickPreviewCount = headings.length + imagePanelCount;
+  const sidePanelCount = headings.length + imagePanelCount + folderFiles.length;
+  const hasFolderFiles = folderFiles.length > 0;
 
   return (
     <main className="app-shell">
@@ -952,9 +1302,27 @@ function App() {
         </div>
 
         <div className="toolbar" aria-label="文档操作">
-          <button type="button" className="icon-button" title="打开" onClick={handleOpen}>
-            <FolderOpen size={18} />
-          </button>
+          <div className="toolbar-menu" ref={openMenuRef}>
+            <button
+              type="button"
+              className="icon-button"
+              title="打开"
+              aria-expanded={openMenuOpen}
+              onClick={() => setOpenMenuOpen((current) => !current)}
+            >
+              <FolderOpen size={18} />
+            </button>
+            {openMenuOpen && (
+              <div className="toolbar-popover" role="menu" aria-label="打开">
+                <button type="button" role="menuitem" onClick={() => void handleOpen()}>
+                  打开文件
+                </button>
+                <button type="button" role="menuitem" onClick={handleOpenFolder}>
+                  打开文件夹
+                </button>
+              </div>
+            )}
+          </div>
           <button type="button" className="icon-button" title="保存" onClick={handleSave} disabled={!dirty}>
             <Save size={18} />
           </button>
@@ -971,14 +1339,20 @@ function App() {
           className="hidden-input"
           type="file"
           accept=".md,.markdown,.mdown,.mkd,text/markdown,text/plain"
-          onChange={(event) => handleBrowserFile(event.target.files?.[0] ?? null)}
+          onChange={(event) => {
+            void handleBrowserFile(event.target.files?.[0] ?? null);
+            event.currentTarget.value = "";
+          }}
         />
         <input
           ref={folderInputRef}
           className="hidden-input"
           type="file"
           multiple
-          onChange={(event) => handleBrowserFolder(event.target.files)}
+          onChange={(event) => {
+            void handleBrowserFolder(event.target.files);
+            event.currentTarget.value = "";
+          }}
         />
       </header>
 
@@ -1010,16 +1384,16 @@ function App() {
           <aside className="image-panel quick-preview-panel" aria-label="快速预览">
             <div className="image-panel-header">
               <strong>快速预览</strong>
-              <span>{quickPreviewCount}</span>
+              <span>{sidePanelCount}</span>
             </div>
             <div className="quick-preview-content">
-              <div className="quick-preview-tabs" role="tablist" aria-label="快速预览类型">
+              <div className={`quick-preview-tabs ${hasFolderFiles ? "has-files" : ""}`} role="tablist" aria-label="快速预览类型">
                 <button
                   type="button"
                   role="tab"
-                  className={`quick-preview-tab ${activeQuickPreviewTab === "outline" ? "is-active" : ""}`}
-                  aria-selected={activeQuickPreviewTab === "outline"}
-                  onClick={() => setActiveQuickPreviewTab("outline")}
+                  className={`quick-preview-tab ${activeSidePanelTab === "outline" ? "is-active" : ""}`}
+                  aria-selected={activeSidePanelTab === "outline"}
+                  onClick={() => setActiveSidePanelTab("outline")}
                 >
                   目录
                   <span>{headings.length}</span>
@@ -1027,17 +1401,29 @@ function App() {
                 <button
                   type="button"
                   role="tab"
-                  className={`quick-preview-tab ${activeQuickPreviewTab === "images" ? "is-active" : ""}`}
-                  aria-selected={activeQuickPreviewTab === "images"}
-                  onClick={() => setActiveQuickPreviewTab("images")}
+                  className={`quick-preview-tab ${activeSidePanelTab === "images" ? "is-active" : ""}`}
+                  aria-selected={activeSidePanelTab === "images"}
+                  onClick={() => setActiveSidePanelTab("images")}
                 >
                   图片
                   <span>{imagePanelCount}</span>
                 </button>
+                {hasFolderFiles && (
+                  <button
+                    type="button"
+                    role="tab"
+                    className={`quick-preview-tab ${activeSidePanelTab === "files" ? "is-active" : ""}`}
+                    aria-selected={activeSidePanelTab === "files"}
+                    onClick={() => setActiveSidePanelTab("files")}
+                  >
+                    文件
+                    <span>{folderFiles.length}</span>
+                  </button>
+                )}
               </div>
 
               <div className="quick-preview-panel-body">
-                {activeQuickPreviewTab === "outline" ? (
+                {activeSidePanelTab === "outline" ? (
                   <nav className="outline-list" aria-label="文档目录">
                     {headings.map((item, index) => (
                       <button
@@ -1053,7 +1439,7 @@ function App() {
                     ))}
                     {headings.length === 0 && <div className="empty-images">暂无目录</div>}
                   </nav>
-                ) : (
+                ) : activeSidePanelTab === "images" ? (
                   <div className="image-grid">
                     {images.map((item, index) => (
                       <button type="button" className="image-card" key={`${item.src}-${item.line}-${item.column}`} onClick={() => handleImageClick(item, index)}>
@@ -1075,6 +1461,13 @@ function App() {
                     ))}
                     {imagePanelCount === 0 && <div className="empty-images">无图片</div>}
                   </div>
+                ) : (
+                  <nav className="folder-tree" aria-label={`${folderName} 文件树`}>
+                    <div className="folder-tree-root">{folderName}</div>
+                    <div className="folder-tree-list">
+                      {folderTree.length > 0 ? renderFolderNodes(folderTree) : <div className="empty-images">暂无文件</div>}
+                    </div>
+                  </nav>
                 )}
               </div>
             </div>
@@ -1082,10 +1475,10 @@ function App() {
         )}
       </section>
 
-      {quickPreviewCount > 0 && (
+      {sidePanelCount > 0 && (
         <button type="button" className="floating-images" title="快速预览" onClick={() => setImagePanelOpen((open) => !open)}>
           <Image size={20} />
-          <span>{quickPreviewCount}</span>
+          <span>{sidePanelCount}</span>
         </button>
       )}
 
@@ -1100,29 +1493,30 @@ function App() {
       )}
 
       {lightbox && (
-        <div className="lightbox" role="dialog" aria-modal="true" aria-label={lightbox.alt} onClick={closeLightbox}>
+        <div
+          className="lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label={lightbox.alt}
+        >
           <button type="button" className="lightbox-close" aria-label="关闭" onClick={closeLightbox}>
             ×
           </button>
           <div
             className={`lightbox-stage ${imageView.scale > 1 ? "is-zoomed" : ""} ${imageDragging ? "is-dragging" : ""}`}
-            onClick={(event) => {
-              if (event.target === event.currentTarget) {
-                closeLightbox();
-                return;
-              }
-              event.stopPropagation();
-            }}
-            onWheel={handleLightboxWheel}
+            ref={lightboxStageRef}
+            onClick={handleLightboxClick}
             onPointerDown={handleLightboxPointerDown}
             onPointerMove={handleLightboxPointerMove}
             onPointerUp={handleLightboxPointerEnd}
             onPointerCancel={handleLightboxPointerEnd}
           >
             <img
+              ref={lightboxImageRef}
               src={lightbox.src}
               alt={lightbox.alt}
               draggable={false}
+              onLoad={() => setImageView((current) => clampLightboxView(current))}
               style={{
                 transform: `translate3d(${imageView.offsetX}px, ${imageView.offsetY}px, 0) scale(${imageView.scale})`,
               }}
@@ -1132,14 +1526,6 @@ function App() {
       )}
     </main>
   );
-}
-
-function normalizeBrowserPath(path: string): string {
-  return path.replaceAll("\\", "/").replace(/\/+/g, "/").replace(/^\.\//, "");
-}
-
-function readWebkitRelativePath(file: File): string {
-  return (file as File & { webkitRelativePath?: string }).webkitRelativePath ?? "";
 }
 
 export default App;

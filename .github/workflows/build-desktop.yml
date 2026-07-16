@@ -1,0 +1,78 @@
+name: Build Desktop Installers
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+
+jobs:
+  build-windows-msi:
+    name: Build Windows MSI
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup MSVC developer tools
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build MSI
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File .\build-msi.ps1
+
+      - name: Upload MSI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: supermd-windows-msi
+          path: src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+
+  build-macos-pkg:
+    name: Build macOS PKG
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Make PKG build script executable
+        run: chmod +x ./build-pkg.sh
+
+      - name: Build PKG
+        run: ./build-pkg.sh
+
+      - name: Upload PKG artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: supermd-macos-pkg
+          path: src-tauri/target/release/bundle/pkg/*.pkg
+          if-no-files-found: error

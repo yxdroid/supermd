@@ -1,6 +1,6 @@
 [package]
 name = "supermd"
-version = "0.1.0"
+version = "0.1.2"
 description = "SuperMD Markdown viewer and editor"
 authors = ["SuperMD"]
 license = ""

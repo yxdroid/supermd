@@ -37,6 +37,8 @@ button {
 }
 
 .topbar {
+  position: relative;
+  z-index: 40;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -85,6 +87,42 @@ button {
   gap: 8px;
 }
 
+.toolbar-menu {
+  position: relative;
+  z-index: 41;
+}
+
+.toolbar-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 42;
+  display: grid;
+  gap: 4px;
+  min-width: 132px;
+  padding: 6px;
+  border: 1px solid #d9d1c0;
+  border-radius: 10px;
+  background: rgba(255, 253, 247, 0.98);
+  box-shadow: 0 10px 24px rgba(42, 37, 29, 0.16);
+}
+
+.toolbar-popover button {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #2a2d27;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.toolbar-popover button:hover {
+  border-color: #d9d1c0;
+  background: #fffef9;
+}
+
 .icon-button,
 .floating-images {
   display: inline-flex;
@@ -101,6 +139,13 @@ button {
   width: 36px;
   height: 36px;
   border-radius: 8px;
+}
+
+.text-button {
+  width: auto;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .icon-button:hover,
@@ -124,6 +169,95 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-height: 0;
+}
+
+.folder-browser {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-height: 58px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #ded7c7;
+  background: rgba(255, 253, 247, 0.92);
+  backdrop-filter: blur(10px);
+}
+
+.folder-browser-meta {
+  min-width: 0;
+}
+
+.folder-browser-meta strong,
+.folder-browser-meta span {
+  display: block;
+  white-space: nowrap;
+}
+
+.folder-browser-meta strong {
+  color: #223330;
+  font-size: 13px;
+}
+
+.folder-browser-meta span {
+  color: #6d665c;
+  font-size: 12px;
+}
+
+.folder-browser-list {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow: auto;
+  padding-bottom: 2px;
+}
+
+.folder-file {
+  flex: none;
+  display: grid;
+  gap: 2px;
+  min-width: 160px;
+  max-width: 240px;
+  padding: 8px 10px;
+  border: 1px solid #d9d1c0;
+  border-radius: 8px;
+  color: #2a2d27;
+  text-align: left;
+  background: #fffef9;
+  cursor: pointer;
+}
+
+.folder-file:hover {
+  border-color: #1b6b64;
+  background: #f6fff9;
+}
+
+.folder-file.is-active {
+  border-color: #1b6b64;
+  background: #edf8f2;
+  box-shadow: inset 0 0 0 1px rgba(27, 107, 100, 0.12);
+}
+
+.folder-file strong,
+.folder-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-file strong {
+  font-size: 12px;
+}
+
+.folder-file span {
+  color: #6d665c;
+  font-size: 11px;
+}
+
+.folder-tree-file {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  gap: 3px;
 }
 
 .workspace.with-editor {
@@ -459,6 +593,10 @@ button {
   background: #f4f1e8;
 }
 
+.quick-preview-tabs.has-files {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .quick-preview-tab {
   display: flex;
   align-items: center;
@@ -497,6 +635,68 @@ button {
 .outline-list {
   display: grid;
   gap: 4px;
+}
+
+.folder-tree {
+  display: grid;
+  gap: 8px;
+}
+
+.folder-tree-root {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 10px;
+  border: 1px solid #d9d1c0;
+  border-radius: 8px;
+  color: #163f3b;
+  background: #fffef9;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.folder-tree-list,
+.folder-node-children {
+  display: grid;
+  gap: 4px;
+}
+
+.folder-branch {
+  display: grid;
+  gap: 4px;
+}
+
+.folder-branch-toggle {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px 0 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #6d665c;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.folder-branch-toggle:hover {
+  border-color: #d9d1c0;
+  background: #fffef9;
+}
+
+.folder-branch-toggle span {
+  color: #1b6b64;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.folder-branch-toggle strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
 }
 
 .outline-item {
@@ -733,6 +933,12 @@ button {
   .editor-pane {
     grid-row: 2;
   }
+
+  .folder-browser {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    align-items: stretch;
+  }
 }
 
 @media (max-width: 640px) {
@@ -744,10 +950,15 @@ button {
 
   .toolbar {
     justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .supermd-preview {
     width: calc(100% - 28px);
     padding-top: 28px;
+  }
+
+  .folder-file {
+    min-width: 136px;
   }
 }

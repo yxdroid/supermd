@@ -11,6 +11,7 @@ export interface MarkdownWorkerResponse {
   html: string;
   images: ReturnType<typeof indexImages>;
   renderMs: number;
+  unsupported?: boolean;
 }
 
 self.onmessage = async (event: MessageEvent<MarkdownWorkerRequest>) => {
@@ -18,6 +19,17 @@ self.onmessage = async (event: MessageEvent<MarkdownWorkerRequest>) => {
   const { version, content, documentPath } = event.data;
 
   try {
+    if (typeof DOMParser === "undefined") {
+      self.postMessage({
+        version,
+        html: "",
+        images: [],
+        renderMs: Math.round(performance.now() - started),
+        unsupported: true,
+      } satisfies MarkdownWorkerResponse);
+      return;
+    }
+
     const [html, images] = await Promise.all([
       renderMarkdown(content),
       Promise.resolve(indexImages(content, documentPath)),

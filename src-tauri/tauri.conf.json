@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "SuperMD",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "identifier": "com.supermd.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -18,7 +18,8 @@
         "height": 780,
         "minWidth": 760,
         "minHeight": 520,
-        "resizable": true
+        "resizable": true,
+        "zoomHotkeysEnabled": true
       }
     ],
     "security": {
